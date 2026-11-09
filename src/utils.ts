@@ -52,3 +52,26 @@ export function getTodayDateString(d: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Remove trailing "Rādīt vairāk", "Rādīt mazāk", and any trailing attachment filename that leaked from DOM
+ */
+export function cleanHomeworkText(text?: string, attachmentNames: string[] = []): string {
+  if (!text) return '';
+  let cleaned = text.trim();
+
+  // Strip known attachment names if they were concatenated to the end of homework text
+  for (const name of attachmentNames) {
+    if (name && cleaned.endsWith(name)) {
+      cleaned = cleaned.slice(0, -name.length).trim();
+    }
+  }
+
+  // Strip trailing "Rādīt vairāk", "... Rādīt vairāk", or "Rādīt mazāk"
+  cleaned = cleaned
+    .replace(/\s*(\.\.\.\s*)?Rādīt vairāk\s*$/i, '')
+    .replace(/\s*Rādīt mazāk\s*$/i, '')
+    .trim();
+
+  return cleaned;
+}
+

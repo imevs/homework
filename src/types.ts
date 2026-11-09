@@ -76,5 +76,6 @@ export interface AppConfig {
   outputMarkdown: string;
   outputHtml: string;
   attachmentsDir: string;
+  authFile: string;
 }
 

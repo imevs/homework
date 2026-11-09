@@ -57,5 +57,6 @@ import type { AppConfig } from './types.ts';
     outputMarkdown: 'homework.md',
     outputHtml: 'homework.html',
     attachmentsDir: path.resolve('attachments'),
+    authFile: process.env.AUTH_FILE || path.resolve('.auth/user.json'),
   };
 

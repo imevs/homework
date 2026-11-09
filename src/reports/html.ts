@@ -53,7 +53,9 @@ export function generateHtmlReport(report: ScrapeReport): string {
           } else {
             lessonsHtml = hwLessons
               .map((l, lessonIdx) => {
-                const taskId = `task-${cls.classId}-${dayIdx}-${lessonIdx}`;
+                const safeDate = (day.date || '').slice(0, 10).replace(/[^0-9]/g, '');
+                const safeSubj = (l.subject || '').replace(/[^a-zA-Z0-9\u00C0-\u024F]/g, '_');
+                const taskId = `task-${cls.classId}-${safeDate}-${l.number || lessonIdx}-${safeSubj}`;
                 const numText = l.number ? `<span class="lesson-num">${escapeHtml(l.number)}.</span>` : '';
                 const isAssor = (l.schoolShort || '').includes('ASSOR');
                 const schoolTagHtml = l.schoolShort

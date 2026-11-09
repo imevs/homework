@@ -2,9 +2,10 @@ node_modules/
 dist/
 _site/
 .env
+.auth/
+*.storageState.json
 .env.example
 homework.html
-.gitignore
 homework.json
 homework.md
 attachments/*

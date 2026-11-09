@@ -106,6 +106,15 @@ node --env-file=my-credentials.env src/index.ts
 | `EKLASE_USER` | E-Klase username / personas kods (e.g. from `.env` or GitHub Secrets) |
 | `EKLASE_PASSWORD` | E-Klase password (e.g. from `.env` or GitHub Secrets) |
 | `HEADLESS` | Run in headless mode (`true`, default) or visible browser window (`false`) |
+| `AUTH_FILE` | Path to save/restore Playwright session cookies (defaults to `.auth/user.json`) |
+
+---
+
+## ⚡ Session Persistence (`storageState`)
+
+The scraper automatically caches authentication cookies in `.auth/user.json`.
+- **Local Runs**: When you run the scraper again, it detects the valid session and navigates directly to profile selection, skipping the login screen entirely. If the session expires, it automatically falls back to credentials login and refreshes the session file.
+- **GitHub Actions (GitHub Pages)**: The workflow uses `actions/cache@v4` to persist `.auth` across daily runs. It reuses the session to avoid logging in from scratch every day. The `.auth` directory is strictly ignored by git and excluded from the public GitHub Pages `_site` artifact.
 
 ---
 

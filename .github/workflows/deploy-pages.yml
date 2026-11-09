@@ -45,6 +45,14 @@ jobs:
       - name: Install Playwright browser dependencies
         run: npx playwright install --with-deps chromium
 
+      - name: Restore Playwright authentication session
+        uses: actions/cache@v4
+        with:
+          path: .auth
+          key: eklase-session-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            eklase-session-${{ runner.os }}-
+
       - name: Scrape E-Klase homework
         env:
           EKLASE_USER: ${{ secrets.EKLASE_USER }}
@@ -55,6 +63,7 @@ jobs:
       - name: Prepare GitHub Pages directory
         run: |
           mkdir -p _site
+          touch _site/.nojekyll
           cp homework.html _site/index.html
           cp homework.html _site/homework.html
           cp homework.json _site/

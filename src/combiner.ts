@@ -1,5 +1,5 @@
 import type { ProfileReport, ClassReport, DayEntry, Lesson } from './types.ts';
-import { getSchoolShortName } from './utils.ts';
+import { getSchoolShortName, cleanHomeworkText } from './utils.ts';
 
 /**
  * Combine scraped homework across multiple schools into unified classes (e.g. 4.c and 1.a)
@@ -46,8 +46,14 @@ export function combineHomeworkByClass(profiles: ProfileReport[]): ClassReport[]
         dayEntry.title = day.title;
       }
       for (const lesson of day.lessons) {
+        const cleanedHw = cleanHomeworkText(
+          lesson.homework,
+          (lesson.attachments || []).map((a) => a.name)
+        );
         dayEntry.lessons.push({
           ...lesson,
+          homework: cleanedHw,
+          hasHomework: Boolean(cleanedHw),
           schoolName: prof.schoolName,
           schoolShort: getSchoolShortName(prof.schoolName)
         });
