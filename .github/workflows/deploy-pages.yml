@@ -1,0 +1,82 @@
+name: Deploy E-Klase Homework to GitHub Pages
+
+on:
+  schedule:
+    # Runs every day at 14:00 Latvian time (EET / UTC+2 -> 12:00 UTC)
+    - cron: '0 12 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-pages.yml'
+
+# Allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  scrape-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Install Playwright browser dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Scrape E-Klase homework
+        env:
+          EKLASE_USER: ${{ secrets.EKLASE_USER }}
+          EKLASE_PASSWORD: ${{ secrets.EKLASE_PASSWORD }}
+          HEADLESS: 'true'
+        run: node src/index.ts
+
+      - name: Prepare GitHub Pages directory
+        run: |
+          mkdir -p _site
+          cp homework.html _site/index.html
+          cp homework.html _site/homework.html
+          cp homework.json _site/
+          cp homework.md _site/
+          if [ -d "attachments" ]; then
+            cp -r attachments _site/
+          fi
+
+      - name: Upload error screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-error-screenshot
+          path: error_screenshot.png
+          if-no-files-found: ignore
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

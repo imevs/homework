@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "scrape": "node src/index.ts",
     "scrape:headed": "HEADLESS=false node src/index.ts",
-    "report": "node src/index.ts --generate-only"
+    "report": "node src/index.ts --generate-only",
+    "pages:prepare": "mkdir -p _site && cp homework.html _site/index.html && cp homework.html _site/homework.html && cp homework.json _site/ && cp homework.md _site/ && (cp -r attachments _site/ 2>/dev/null || true)"
   },
   "dependencies": {
     "playwright": "^1.49.0"

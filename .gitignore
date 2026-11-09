@@ -1,5 +1,7 @@
 node_modules/
 dist/
+_site/
+.env
 .env.example
 homework.html
 .gitignore
