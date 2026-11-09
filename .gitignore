@@ -1,15 +1,8 @@
+node_modules/
+dist/
 .env.example
 homework.html
 .gitignore
 homework.json
 homework.md
-attachments/2026-11-10_otrdiena/Atgadne_Mugurkaulnieki_.docx
-attachments/2026-11-10_otrdiena/atkārtojums_.pptx
-attachments/2026-11-10_otrdiena/Dzimtene.docx
-attachments/2026-11-10_otrdiena/paraugs teksta rakstīšanai 2_nodaļa.docx
-attachments/2026-11-10_otrdiena/uzdevums (8).docx
-attachments/2026-11-10_otrdiena/Vārdi_2_mācīšanai _no _galvas.docx
-attachments/2026-11-10_otrdiena/Vārdi_3_mācīšanai _no _galvas.docx
-attachments/2026-11-11_trešdiena/m d.docx
-attachments/2026-11-12_ceturtdiena/Sagatavošanās pārbaudes darbam 1_klase 2_daļa.pptx
-attachments/2026-11-12_ceturtdiena/teksts Vorobej.docx
+attachments/*

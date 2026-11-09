@@ -1,0 +1,444 @@
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
+import type {
+  AppConfig,
+  ProfileReport,
+  DayEntry,
+  Lesson,
+  Attachment,
+  AuthHeaders
+} from './types.ts';
+import { sleep, formatBytes, getTodayDateString, LATVIAN_DAYS } from './utils.ts';
+
+interface ScraperResult {
+  profiles: ProfileReport[];
+  today: string;
+}
+
+export async function runScraper(config: AppConfig): Promise<ScraperResult> {
+  console.log('========================================================');
+  console.log('🚀 E-Klase Multi-Profile Homework Scraper');
+  console.log(`👤 User:         ${config.username}`);
+  console.log(`🎯 Profiles (${config.targetProfiles.length}):`);
+  for (const p of config.targetProfiles) {
+    console.log(`   - ${p.label}`);
+  }
+  console.log(`🖥️  Browser Mode: ${config.headless ? 'Headless' : 'Visible (Headed)'}`);
+  console.log('========================================================\n');
+
+  const browser: Browser = await chromium.launch({
+    headless: config.headless,
+    args: ['--disable-blink-features=AutomationControlled']
+  });
+
+  const context: BrowserContext = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: 'lv-LV',
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+  });
+
+  const page: Page = await context.newPage();
+
+  // Track auth headers across the session
+  let authHeaders: AuthHeaders = {};
+  page.on('request', (req) => {
+    if (req.url().includes('family/api/')) {
+      const h = req.headers();
+      if (h.authorization) {
+        authHeaders = {
+          authorization: h.authorization,
+          'x-profile-id': h['x-profile-id'],
+          'x-class-id': h['x-class-id']
+        };
+      }
+    }
+  });
+
+  // Track the latest diary response
+  let latestDiaryApiResponse: any = null;
+  page.on('response', async (res) => {
+    if (res.url().includes('family/api/diary')) {
+      try {
+        latestDiaryApiResponse = await res.json();
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  const attachmentsDir = config.attachmentsDir;
+  if (!fs.existsSync(attachmentsDir)) {
+    fs.mkdirSync(attachmentsDir, { recursive: true });
+  }
+
+  const todayStr = getTodayDateString();
+  console.log(`📆 Today's Date: ${todayStr} (Homework for today will NOT be saved)`);
+
+  const allProfilesReports: ProfileReport[] = [];
+
+  try {
+    // -------------------------------------------------------------------------
+    // Step 1: Open e-klase.lv & Handle Cookies
+    // -------------------------------------------------------------------------
+    console.log(`🌐 1. Opening ${config.url}...`);
+    await page.goto(config.url, { waitUntil: 'domcontentloaded', timeout: config.timeout });
+
+    const cookieBtn = page
+      .locator('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll, button:has-text("Atļaut visu")')
+      .first();
+    if (await cookieBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+      console.log('🍪 Dismissing Cookiebot consent dialog...');
+      await cookieBtn.click();
+      await sleep(600);
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2: Click on "Skolēns/Vecāks"
+    // -------------------------------------------------------------------------
+    console.log('🖱️  2. Clicking "Skolēns/Vecāks" button...');
+    const studentParentBtn = page
+      .locator('a[href*="family.e-klase.lv"]:visible, a:has-text("Skolēns/Vecāks"):visible')
+      .first();
+    await studentParentBtn.waitFor({ state: 'visible', timeout: 8000 });
+    await studentParentBtn.click();
+
+    // -------------------------------------------------------------------------
+    // Step 3: Authenticate (auth.e-klase.lv)
+    // -------------------------------------------------------------------------
+    console.log('🔑 3. Waiting for login form...');
+    await page.waitForSelector('#username, input[name="username"], input[name="UserName"]', {
+      timeout: 15000
+    });
+
+    console.log('✍️  Filling credentials...');
+    await page
+      .locator('#username, input[name="username"], input[name="UserName"]')
+      .first()
+      .fill(config.username);
+    await page
+      .locator('#password, input[name="password"], input[name="Password"]')
+      .first()
+      .fill(config.password);
+
+    console.log('🚀 Submitting credentials...');
+    const submitBtn = page
+      .locator('button:has-text("Pieslēgties"), button.btn--large, button[type="submit"]')
+      .first();
+    await submitBtn.click();
+
+    await page.waitForURL(/profile-selection|home/, { timeout: 20000 });
+    console.log('✅ Successfully authenticated!');
+
+    // -------------------------------------------------------------------------
+    // Step 4: Loop through all target profiles
+    // -------------------------------------------------------------------------
+    for (let i = 0; i < config.targetProfiles.length; i++) {
+      const target = config.targetProfiles[i];
+      console.log(`\n--------------------------------------------------------`);
+      console.log(`🎯 Profile [${i + 1}/${config.targetProfiles.length}]: ${target.label}`);
+      console.log(`--------------------------------------------------------`);
+
+      // Always navigate to profile selection to switch
+      console.log('🔄 Navigating to profile-selection...');
+      await page.goto('https://family.e-klase.lv/profile-selection', {
+        waitUntil: 'domcontentloaded',
+        timeout: config.timeout
+      });
+      await sleep(1500);
+
+      // Locate card matching target class and school
+      const profileCard = page
+        .locator('div, a, button')
+        .filter({ hasText: target.className })
+        .filter({ hasText: target.schoolName })
+        .last();
+
+      if (!(await profileCard.isVisible({ timeout: 7000 }).catch(() => false))) {
+        console.warn(`⚠️  Profile card not found on page for: ${target.label}. Skipping...`);
+        continue;
+      }
+
+      // Extract student name from the card text
+      let studentName = 'Skolēns';
+      try {
+        const cardParentText = await profileCard.evaluate((el: HTMLElement) => {
+          let cur: HTMLElement | null = el;
+          while (cur && cur.parentElement && cur.innerText.length < 300) {
+            cur = cur.parentElement;
+          }
+          return cur ? cur.innerText : el.innerText;
+        });
+        const lines = cardParentText
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
+        for (let idx = 0; idx < lines.length; idx++) {
+          if (lines[idx].includes(target.className) && lines[idx].includes(target.schoolName)) {
+            if (idx > 0 && !lines[idx - 1].includes('202') && !lines[idx - 1].includes('skolēnu')) {
+              studentName = lines[idx - 1];
+            }
+            break;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      console.log(`🖱️  Selecting profile: ${target.label}...`);
+      latestDiaryApiResponse = null;
+      await profileCard.click();
+
+      await page.waitForURL(/home|diary/, { timeout: 15000 });
+      await sleep(1000);
+
+      // Navigate to Diary
+      console.log('📅 Opening Diary ("Dienasgrāmata")...');
+      await page.goto('https://family.e-klase.lv/diary', {
+        waitUntil: 'domcontentloaded',
+        timeout: config.timeout
+      });
+      await sleep(2500); // Allow API requests and Vue rendering to settle
+
+      console.log(`📖 Diary loaded at: ${page.url()}`);
+
+      // Parse diary API response for attachments
+      const apiAttachmentsMap = new Map<string, Attachment[]>();
+      if (Array.isArray(latestDiaryApiResponse)) {
+        for (const day of latestDiaryApiResponse) {
+          const dayDate = day.date ? day.date.slice(0, 10) : '';
+          const dObj = new Date(dayDate + 'T00:00:00');
+          const dayName = LATVIAN_DAYS[dObj.getDay()] || '';
+          const dayFolderName = dayName ? `${dayDate}_${dayName}` : dayDate;
+
+          for (const lesson of day.lessons || []) {
+            const lessonNum = String(lesson.lessonNumber || '');
+            const subjName = (lesson.classJournalName || '').trim().toLowerCase();
+            const key = `${dayDate}_${lessonNum}_${subjName}`;
+            const fallbackKey = `${dayDate}_${subjName}`;
+
+            const attList: Attachment[] = [];
+            for (const ht of lesson.homeTasks || []) {
+              for (const att of ht.task?.attachments || []) {
+                attList.push({
+                  id: att.id,
+                  name: att.name,
+                  dayDate,
+                  dayFolderName,
+                  sizeInBytes: att.sizeInBytes,
+                  formattedSize: formatBytes(att.sizeInBytes),
+                  url: `https://my.e-klase.lv/family/api/attachments/${att.id}`
+                });
+              }
+            }
+            for (const ls of lesson.lessonSubjects || []) {
+              for (const att of ls.value?.attachments || []) {
+                attList.push({
+                  id: att.id,
+                  name: att.name,
+                  dayDate,
+                  dayFolderName,
+                  sizeInBytes: att.sizeInBytes,
+                  formattedSize: formatBytes(att.sizeInBytes),
+                  url: `https://my.e-klase.lv/family/api/attachments/${att.id}`
+                });
+              }
+            }
+
+            if (attList.length > 0) {
+              apiAttachmentsMap.set(key, attList);
+              if (!apiAttachmentsMap.has(fallbackKey)) {
+                apiAttachmentsMap.set(fallbackKey, attList);
+              }
+            }
+          }
+        }
+      }
+
+      // Download attachments for this profile, skipping already downloaded files
+      const downloadedMap = new Map<string, string>();
+      for (const [, attList] of apiAttachmentsMap) {
+        for (const att of attList) {
+          if (att.dayDate && att.dayDate <= todayStr) {
+            continue; // Skip attachments from today or in the past
+          }
+
+          const targetDayFolder = path.join(attachmentsDir, att.dayFolderName || 'other');
+          if (!fs.existsSync(targetDayFolder)) {
+            fs.mkdirSync(targetDayFolder, { recursive: true });
+          }
+
+          const safeName = att.name.replace(/[\\/:*?"<>|]/g, '_');
+          const localPath = path.join(targetDayFolder, safeName);
+          const relativePath = path.posix.join('attachments', att.dayFolderName || 'other', safeName);
+
+          // Check if file is already downloaded and non-empty
+          if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
+            console.log(`   ⏭️  [${att.dayFolderName}] Skipping (already downloaded): ${att.name}`);
+            att.localPath = relativePath;
+            downloadedMap.set(att.id, relativePath);
+            continue;
+          }
+
+          if (!downloadedMap.has(att.id)) {
+            try {
+              console.log(
+                `   ⬇️  [${att.dayFolderName}] Downloading: ${att.name} (${att.formattedSize})...`
+              );
+              const headers: Record<string, string> = {};
+              if (authHeaders.authorization) headers['authorization'] = authHeaders.authorization;
+              if (authHeaders['x-profile-id']) headers['x-profile-id'] = authHeaders['x-profile-id'];
+              if (authHeaders['x-class-id']) headers['x-class-id'] = authHeaders['x-class-id'];
+
+              const fileResp = await page.context().request.get(att.url, { headers });
+              if (fileResp.status() === 200) {
+                const buffer = await fileResp.body();
+                fs.writeFileSync(localPath, buffer);
+                att.localPath = relativePath;
+                downloadedMap.set(att.id, relativePath);
+                console.log(`      ✅ Saved to: ${relativePath}`);
+              } else {
+                console.warn(`      ⚠️  Download returned HTTP ${fileResp.status()}`);
+              }
+            } catch (dlErr: any) {
+              console.warn(`      ⚠️  Failed to download ${att.name}: ${dlErr?.message}`);
+            }
+          } else {
+            att.localPath = downloadedMap.get(att.id);
+          }
+        }
+      }
+
+      // Parse diary entries from DOM
+      const parsedDays = await page.evaluate(() => {
+        const days: Array<{
+          date: string;
+          title: string;
+          lessons: Array<{
+            number: string;
+            subject: string;
+            topic: string;
+            homework: string;
+            grades: string;
+            hasHomework: boolean;
+          }>;
+        }> = [];
+
+        const clean = (s: string | null | undefined): string =>
+          s ? s.replace(/\s+/g, ' ').trim() : '';
+        const dayContainers = Array.from(document.querySelectorAll('div[data-date]'));
+
+        for (const dc of dayContainers) {
+          const dateIso = dc.getAttribute('data-date') || '';
+          const titleText = clean(dc.querySelector('p')?.innerText || '');
+
+          const lessonRows = Array.from(
+            dc.querySelectorAll('.col-span-5.grid, div.grid-cols-subgrid')
+          );
+          const lessons: Array<{
+            number: string;
+            subject: string;
+            topic: string;
+            homework: string;
+            grades: string;
+            hasHomework: boolean;
+          }> = [];
+
+          for (const row of lessonRows) {
+            const cells = Array.from(row.children) as HTMLElement[];
+            if (cells.length < 4) continue;
+
+            const number = clean(cells[0]?.innerText || '');
+            const subject = clean(
+              cells[1]?.querySelector('.text-subhead-14')?.textContent || cells[1]?.innerText || ''
+            );
+            const topic = clean(cells[2]?.innerText || '');
+            const homework = clean(cells[3]?.innerText || '');
+            const grades = clean(cells[4]?.innerText || '');
+
+            if (subject || homework || topic) {
+              lessons.push({
+                number,
+                subject,
+                topic,
+                homework,
+                grades,
+                hasHomework: Boolean(homework)
+              });
+            }
+          }
+
+          days.push({
+            date: dateIso,
+            title: titleText,
+            lessons
+          });
+        }
+
+        return days;
+      });
+
+      // Attach local file paths to lessons
+      const daysWithAttachments: DayEntry[] = parsedDays.map((day) => {
+        const dayDate = day.date ? day.date.slice(0, 10) : '';
+        const lessonsWithAtt: Lesson[] = day.lessons.map((lesson) => {
+          const lessonNum = String(lesson.number || '');
+          const subjName = (lesson.subject || '').trim().toLowerCase();
+          const key = `${dayDate}_${lessonNum}_${subjName}`;
+          const fallbackKey = `${dayDate}_${subjName}`;
+
+          const attachments =
+            apiAttachmentsMap.get(key) || apiAttachmentsMap.get(fallbackKey) || [];
+          return {
+            ...lesson,
+            attachments
+          };
+        });
+
+        return {
+          date: day.date,
+          title: day.title,
+          lessons: lessonsWithAtt
+        };
+      });
+
+      // Filter for days strictly AFTER today (exclude today's homework!)
+      const futureDays = daysWithAttachments.filter((day) => {
+        const dayDate = day.date ? day.date.slice(0, 10) : '';
+        return dayDate > todayStr;
+      });
+
+      console.log(
+        `📊 Collected ${futureDays.length} future day(s) for ${target.label} (excluding today)`
+      );
+
+      allProfilesReports.push({
+        profileId: `profile-${i}`,
+        className: target.className,
+        schoolName: target.schoolName,
+        label: target.label,
+        student: studentName,
+        days: futureDays
+      });
+    }
+
+    return {
+      profiles: allProfilesReports,
+      today: todayStr
+    };
+  } catch (error) {
+    console.error('❌ Error executing scraper:', error);
+    try {
+      await page.screenshot({ path: 'error_screenshot.png', fullPage: true });
+      console.log('📸 Saved error screenshot to error_screenshot.png');
+    } catch {
+      // ignore
+    }
+    throw error;
+  } finally {
+    await browser.close();
+    console.log('🏁 Execution complete.');
+  }
+}
+

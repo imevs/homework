@@ -2,15 +2,21 @@
   "name": "eklase-playwright",
   "version": "1.0.0",
   "description": "Playwright automation script to scrape homework for the current day and remaining days of the week.",
-  "main": "scrape_eklase.js",
+  "main": "src/index.ts",
   "type": "module",
   "scripts": {
-    "start": "node scrape_eklase.js",
-    "scrape": "node scrape_eklase.js",
-    "scrape:headed": "HEADLESS=false node scrape_eklase.js",
-    "report": "node scrape_eklase.js --generate-only"
+    "start": "node src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "scrape": "node src/index.ts",
+    "scrape:headed": "HEADLESS=false node src/index.ts",
+    "report": "node src/index.ts --generate-only"
   },
   "dependencies": {
     "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
   }
 }
