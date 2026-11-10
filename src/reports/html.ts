@@ -1,6 +1,6 @@
 import type { ScrapeReport } from '../types.ts';
 import { combineHomeworkByClass } from '../combiner.ts';
-import { escapeHtml, linkify } from '../utils.ts';
+import { escapeHtml, formatHomeworkHtml } from '../utils.ts';
 
 /**
  * Generate a modern, ultra-compact, responsive HTML report combined by class
@@ -64,7 +64,7 @@ export function generateHtmlReport(report: ScrapeReport): string {
                 const topicHtml = l.topic
                   ? `<span class="topic-pill" title="${escapeHtml(l.topic)}">📖 ${escapeHtml(l.topic)}</span>`
                   : '';
-                const homeworkHtml = linkify(l.homework);
+                const homeworkHtml = formatHomeworkHtml(l.homework);
 
                 let attachmentsHtml = '';
                 if (l.attachments && l.attachments.length > 0) {
@@ -528,13 +528,29 @@ export function generateHtmlReport(report: ScrapeReport): string {
     .hw-text {
       background: #f8fafc;
       border-left: 2px solid #cbd5e1;
-      padding: 4px 8px;
+      padding: 5px 9px;
       border-radius: 0 4px 4px 0;
       font-size: 0.84rem;
-      line-height: 1.35;
-      white-space: pre-wrap;
+      line-height: 1.4;
       word-break: break-word;
       color: var(--text);
+    }
+
+    .hw-text p {
+      margin: 0 0 4px 0;
+    }
+
+    .hw-text p:last-child {
+      margin-bottom: 0;
+    }
+
+    .hw-text ul, .hw-text ol {
+      margin: 4px 0;
+      padding-left: 18px;
+    }
+
+    .hw-text li {
+      margin-bottom: 2px;
     }
 
     /* Attachments */

@@ -41,64 +41,64 @@ export async function runScraper(config: AppConfig): Promise<ScraperResult> {
     args: ['--disable-blink-features=AutomationControlled']
   });
 
-    const contextOptions: any = {
-      viewport: { width: 1440, height: 900 },
-      locale: 'lv-LV',
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-};
+  const contextOptions: any = {
+    viewport: { width: 1440, height: 900 },
+    locale: 'lv-LV',
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+  };
 
-if (hasSavedSession) {
-  try {
-    contextOptions.storageState = authFile;
-    console.log(`🔑 Loading saved session from: ${authFile}`);
-  } catch (e: any) {
-    console.warn(`⚠️ Failed reading saved session (${e?.message}). Will log in afresh.`);
-  }
-}
-
-const context: BrowserContext = await browser.newContext(contextOptions);
-const page: Page = await context.newPage();
-
-// Track auth headers across the session
-let authHeaders: AuthHeaders = {};
-page.on('request', (req) => {
-  if (req.url().includes('family/api/')) {
-    const h = req.headers();
-    if (h.authorization) {
-      authHeaders = {
-        authorization: h.authorization,
-        'x-profile-id': h['x-profile-id'],
-        'x-class-id': h['x-class-id']
-      };
-    }
-  }
-});
-
-// Track the latest diary response
-let latestDiaryApiResponse: any = null;
-page.on('response', async (res) => {
-  if (res.url().includes('family/api/diary')) {
+  if (hasSavedSession) {
     try {
-      latestDiaryApiResponse = await res.json();
-    } catch {
-      // ignore
+      contextOptions.storageState = authFile;
+      console.log(`🔑 Loading saved session from: ${authFile}`);
+    } catch (e: any) {
+      console.warn(`⚠️ Failed reading saved session (${e?.message}). Will log in afresh.`);
     }
   }
-});
 
-const attachmentsDir = config.attachmentsDir;
-if (!fs.existsSync(attachmentsDir)) {
-  fs.mkdirSync(attachmentsDir, { recursive: true });
-}
+  const context: BrowserContext = await browser.newContext(contextOptions);
+  const page: Page = await context.newPage();
 
-const todayStr = getTodayDateString();
-console.log(`📆 Today's Date: ${todayStr} (Homework for today will NOT be saved)`);
+  // Track auth headers across the session
+  let authHeaders: AuthHeaders = {};
+  page.on('request', (req) => {
+    if (req.url().includes('family/api/')) {
+      const h = req.headers();
+      if (h.authorization) {
+        authHeaders = {
+          authorization: h.authorization,
+          'x-profile-id': h['x-profile-id'],
+          'x-class-id': h['x-class-id']
+        };
+      }
+    }
+  });
 
-const allProfilesReports: ProfileReport[] = [];
+  // Track the latest diary response
+  let latestDiaryApiResponse: any = null;
+  page.on('response', async (res) => {
+    if (res.url().includes('family/api/diary')) {
+      try {
+        latestDiaryApiResponse = await res.json();
+      } catch {
+        // ignore
+      }
+    }
+  });
 
-try {
-  let isLoggedIn = false;
+  const attachmentsDir = config.attachmentsDir;
+  if (!fs.existsSync(attachmentsDir)) {
+    fs.mkdirSync(attachmentsDir, { recursive: true });
+  }
+
+  const todayStr = getTodayDateString();
+  console.log(`📆 Today's Date: ${todayStr} (Homework for today will NOT be saved)`);
+
+  const allProfilesReports: ProfileReport[] = [];
+
+  try {
+    let isLoggedIn = false;
 
     // Check if saved session is valid
     if (hasSavedSession) {
@@ -282,311 +282,400 @@ try {
 
           for (const lesson of day.lessons || []) {
             const lessonNum = String(lesson.lessonNumber || '');
-            const subjName = (lesson.classJournalName || '').trim().toLowerCase();
+            const rawSubj = String(
+              lesson.classJournalName || lesson.subjectName || lesson.subject?.name || ''
+            );
+            const subjName = rawSubj.trim().toLowerCase();
+            const cleanSubj = subjName.replace(/\s*\b\d+\.[a-z]\b/gi, '').trim();
+
             const key = `${dayDate}_${lessonNum}_${subjName}`;
-            const fallbackKey = `${dayDate}_${subjName}`;
+            const keyClean = `${dayDate}_${lessonNum}_${cleanSubj}`;
+            const numKey = `${dayDate}_#${lessonNum}`;
+            const fallbackKey = `${dayDate}_${cleanSubj || subjName}`;
+            const lookupKeys = [key, keyClean, numKey, fallbackKey];
 
             const attList: Attachment[] = [];
             const hwTexts: string[] = [];
 
             for (const ht of lesson.homeTasks || []) {
-                const taskObj = ht.task || ht;
-                const text = (
-                  taskObj?.text ||
-                  taskObj?.description ||
-                  taskObj?.content ||
-                  taskObj?.name ||
-                  ht.note ||
-                  ''
-                ).trim();
-                if (text) {
-                  hwTexts.push(text);
-                }
-                for (const att of taskObj?.attachments || []) {
-                  attList.push({
-                    id: att.id,
-                    name: att.name,
-                    dayDate,
-                    dayFolderName,
-                    sizeInBytes: att.sizeInBytes,
-                    formattedSize: formatBytes(att.sizeInBytes),
-                    url: `https://my.e-klase.lv/family/api/attachments/${att.id}`
-                  });
-                }
+              const taskObj = ht.task || ht;
+              const text = (
+                taskObj?.text ||
+                taskObj?.description ||
+                taskObj?.content ||
+                taskObj?.name ||
+                ht.note ||
+                ''
+              ).trim();
+              if (text) {
+                hwTexts.push(text);
               }
-
-              for (const ls of lesson.lessonSubjects || []) {
-                for (const att of ls.value?.attachments || []) {
-                  attList.push({
-                    id: att.id,
-                    name: att.name,
-                    dayDate,
-                    dayFolderName,
-                    sizeInBytes: att.sizeInBytes,
-                    formattedSize: formatBytes(att.sizeInBytes),
-                    url: `https://my.e-klase.lv/family/api/attachments/${att.id}`
-                  });
-                }
+              for (const att of taskObj?.attachments || []) {
+                attList.push({
+                  id: att.id,
+                  name: att.name,
+                  dayDate,
+                  dayFolderName,
+                  sizeInBytes: att.sizeInBytes,
+                  formattedSize: formatBytes(att.sizeInBytes),
+                  url: `https://my.e-klase.lv/family/api/attachments/${att.id}`
+                });
               }
+            }
 
-              if (attList.length > 0) {
-                apiAttachmentsMap.set(key, attList);
-                if (!apiAttachmentsMap.has(fallbackKey)) {
-                  apiAttachmentsMap.set(fallbackKey, attList);
+            for (const ls of lesson.lessonSubjects || []) {
+              for (const att of ls.value?.attachments || []) {
+                attList.push({
+                  id: att.id,
+                  name: att.name,
+                  dayDate,
+                  dayFolderName,
+                  sizeInBytes: att.sizeInBytes,
+                  formattedSize: formatBytes(att.sizeInBytes),
+                  url: `https://my.e-klase.lv/family/api/attachments/${att.id}`
+                });
+              }
+            }
+
+            if (attList.length > 0) {
+                for (const k of lookupKeys) {
+                  if (!apiAttachmentsMap.has(k)) {
+                    apiAttachmentsMap.set(k, attList);
+                  }
                 }
               }
 
               if (hwTexts.length > 0) {
                 const combinedHw = hwTexts.join('\n');
-                apiHomeworkMap.set(key, combinedHw);
-                if (!apiHomeworkMap.has(fallbackKey)) {
-                  apiHomeworkMap.set(fallbackKey, combinedHw);
+                  for (const k of lookupKeys) {
+                    if (!apiHomeworkMap.has(k)) {
+                      apiHomeworkMap.set(k, combinedHw);
+                    }
+                  }
                 }
               }
             }
           }
-        }
 
-        // Download attachments for this profile, skipping already downloaded files
-        const downloadedMap = new Map<string, string>();
-        for (const [, attList] of apiAttachmentsMap) {
-          for (const att of attList) {
-            if (att.dayDate && att.dayDate <= todayStr) {
-              continue; // Skip attachments from today or in the past
-            }
-
-            const targetDayFolder = path.join(attachmentsDir, att.dayFolderName || 'other');
-            if (!fs.existsSync(targetDayFolder)) {
-              fs.mkdirSync(targetDayFolder, { recursive: true });
-            }
-
-            const safeName = att.name.replace(/[\\/:*?"<>|]/g, '_');
-            const localPath = path.join(targetDayFolder, safeName);
-            const relativePath = path.posix.join('attachments', att.dayFolderName || 'other', safeName);
-
-            // Check if file is already downloaded and non-empty
-            if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
-              console.log(`   ⏭️  [${att.dayFolderName}] Skipping (already downloaded): ${att.name}`);
-              att.localPath = relativePath;
-              downloadedMap.set(att.id, relativePath);
-              continue;
-            }
-
-            if (!downloadedMap.has(att.id)) {
-              try {
-                console.log(
-                  `   ⬇️  [${att.dayFolderName}] Downloading: ${att.name} (${att.formattedSize})...`
-                );
-                const headers: Record<string, string> = {};
-                if (authHeaders.authorization) headers['authorization'] = authHeaders.authorization;
-                if (authHeaders['x-profile-id']) headers['x-profile-id'] = authHeaders['x-profile-id'];
-                if (authHeaders['x-class-id']) headers['x-class-id'] = authHeaders['x-class-id'];
-
-                const fileResp = await page.context().request.get(att.url, { headers });
-                if (fileResp.status() === 200) {
-                  const buffer = await fileResp.body();
-                  fs.writeFileSync(localPath, buffer);
-                  att.localPath = relativePath;
-                  downloadedMap.set(att.id, relativePath);
-                  console.log(`      ✅ Saved to: ${relativePath}`);
-                } else {
-                  console.warn(`      ⚠️  Download returned HTTP ${fileResp.status()}`);
-                }
-              } catch (dlErr: any) {
-                console.warn(`      ⚠️  Failed to download ${att.name}: ${dlErr?.message}`);
+          // Download attachments for this profile, skipping already downloaded files
+          const downloadedMap = new Map<string, string>();
+          for (const [, attList] of apiAttachmentsMap) {
+            for (const att of attList) {
+              if (att.dayDate && att.dayDate <= todayStr) {
+                continue; // Skip attachments from today or in the past
               }
-            } else {
-              att.localPath = downloadedMap.get(att.id);
+
+              const targetDayFolder = path.join(attachmentsDir, att.dayFolderName || 'other');
+              if (!fs.existsSync(targetDayFolder)) {
+                fs.mkdirSync(targetDayFolder, { recursive: true });
+              }
+
+              const safeName = att.name.replace(/[\\/:*?"<>|]/g, '_');
+              const localPath = path.join(targetDayFolder, safeName);
+              const relativePath = path.posix.join('attachments', att.dayFolderName || 'other', safeName);
+
+              // Check if file is already downloaded and non-empty
+              if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
+                console.log(`   ⏭️  [${att.dayFolderName}] Skipping (already downloaded): ${att.name}`);
+                att.localPath = relativePath;
+                downloadedMap.set(att.id, relativePath);
+                continue;
+              }
+
+              if (!downloadedMap.has(att.id)) {
+                try {
+                  console.log(
+                    `   ⬇️  [${att.dayFolderName}] Downloading: ${att.name} (${att.formattedSize})...`
+                  );
+                  const headers: Record<string, string> = {};
+                  if (authHeaders.authorization) headers['authorization'] = authHeaders.authorization;
+                  if (authHeaders['x-profile-id']) headers['x-profile-id'] = authHeaders['x-profile-id'];
+                  if (authHeaders['x-class-id']) headers['x-class-id'] = authHeaders['x-class-id'];
+
+                  const fileResp = await page.context().request.get(att.url, { headers });
+                  if (fileResp.status() === 200) {
+                    const buffer = await fileResp.body();
+                    fs.writeFileSync(localPath, buffer);
+                    att.localPath = relativePath;
+                    downloadedMap.set(att.id, relativePath);
+                    console.log(`      ✅ Saved to: ${relativePath}`);
+                  } else {
+                    console.warn(`      ⚠️  Download returned HTTP ${fileResp.status()}`);
+                  }
+                } catch (dlErr: any) {
+                  console.warn(`      ⚠️  Failed to download ${att.name}: ${dlErr?.message}`);
+                }
+              } else {
+                att.localPath = downloadedMap.get(att.id);
+              }
             }
           }
-        }
 
-        // Parse diary entries from DOM
-        const parsedDays = await page.evaluate(() => {
-          const days: Array<{
-            date: string;
-            title: string;
-            lessons: Array<{
-              number: string;
-              subject: string;
-              topic: string;
-              homework: string;
-              grades: string;
-              hasHomework: boolean;
-            }>;
-          }> = [];
-
-          const clean = (s: string | null | undefined): string =>
-            s ? s.replace(/\s+/g, ' ').trim() : '';
-
-          // Click any "Rādīt vairāk" buttons to expand collapsed homework text
-          const showMoreButtons = Array.from(
-            document.querySelectorAll('button, a, span')
-          ).filter((el) => (el.textContent || '').includes('Rādīt vairāk'));
-          for (const btn of showMoreButtons) {
-            try {
-              (btn as HTMLElement).click();
-            } catch {
-              // ignore
+          // Expand all collapsed "Rādīt vairāk" homework buttons on the page via Playwright
+          try {
+            let expandedCount = 0;
+            while (expandedCount < 50) {
+              const showMoreBtn = page.locator('button, a, span, div, p').filter({
+                hasText: /Rādīt vairāk/i
+              }).first();
+              const isVisible = await showMoreBtn.isVisible({ timeout: 350 }).catch(() => false);
+              if (!isVisible) {
+                break;
+              }
+              await showMoreBtn.click({ timeout: 1500, force: true }).catch(() => null);
+              expandedCount++;
+              await sleep(200); // Allow Vue to update reactive state and expand DOM
             }
+            if (expandedCount > 0) {
+              console.log(`🔓 Expanded ${expandedCount} collapsed homework item(s) via "Rādīt vairāk"`);
+              await sleep(400); // Allow layout settlement
+            }
+          } catch {
+            // ignore
           }
 
-          const dayContainers = Array.from(document.querySelectorAll('div[data-date]'));
+          // Parse diary entries from DOM
+            const parsedDays = await page.evaluate(async () => {
+              const days: Array<{
+                date: string;
+                title: string;
+                lessons: Array<{
+                  number: string;
+                  subject: string;
+                  topic: string;
+                  homework: string;
+                  grades: string;
+                  hasHomework: boolean;
+                }>;
+              }> = [];
 
-          for (const dc of dayContainers) {
-            const dateIso = dc.getAttribute('data-date') || '';
-            const titleText = clean(dc.querySelector('p')?.innerText || '');
+              const clean = (s: string | null | undefined): string =>
+                s ? s.replace(/\s+/g, ' ').trim() : '';
 
-            const lessonRows = Array.from(
-              dc.querySelectorAll('.col-span-5.grid, div.grid-cols-subgrid')
-            );
-            const lessons: Array<{
-              number: string;
-              subject: string;
-              topic: string;
-              homework: string;
-              grades: string;
-              hasHomework: boolean;
-            }> = [];
-
-            for (const row of lessonRows) {
-              const cells = Array.from(row.children) as HTMLElement[];
-              if (cells.length < 4) continue;
-
-              const number = clean(cells[0]?.innerText || '');
-              const subject = clean(
-                cells[1]?.querySelector('.text-subhead-14')?.textContent || cells[1]?.innerText || ''
-              );
-              const topic = clean(cells[2]?.innerText || '');
-
-              let homework = '';
-              const hwCell = cells[3];
-              if (hwCell) {
-                // Clone cell and remove attachment links, buttons, and chips to avoid concatenated filenames
-                const clone = hwCell.cloneNode(true) as HTMLElement;
-                clone
-                  .querySelectorAll(
-                    'a, button, [class*="attachment"], [class*="file"], [class*="chip"], [class*="badge"], svg'
-                  )
-                  .forEach((el) => el.remove());
-
-                homework = clean(clone.innerText || '');
-                homework = homework
-                  .replace(/\s*(\.\.\.\s*)?Rādīt vairāk\s*$/i, '')
-                  .replace(/\s*Rādīt mazāk\s*$/i, '')
+              const cleanMultiline = (s: string | null | undefined): string => {
+                if (!s) return '';
+                return s
+                  .replace(/\r\n/g, '\n')
+                  .replace(/\r/g, '\n')
+                  .split('\n')
+                  .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+                  .filter((line, idx, arr) => line || (idx > 0 && arr[idx - 1]))
+                  .join('\n')
                   .trim();
-              }
+              };
 
-              const grades = clean(cells[4]?.innerText || '');
-
-              if (subject || homework || topic) {
-                lessons.push({
-                  number,
-                  subject,
-                  topic,
-                  homework,
-                  grades,
-                  hasHomework: Boolean(homework)
-                });
+              // Backup pass: trigger click on any remaining "Rādīt vairāk" elements
+              const showMoreButtons = Array.from(
+                  document.querySelectorAll('button, a, span, div')
+          ).filter((el) => el.children.length === 0 && (el.textContent || '').includes('Rādīt vairāk'));
+            if (showMoreButtons.length > 0) {
+              for (const btn of showMoreButtons) {
+                try {
+                  (btn as HTMLElement).click();
+                  btn.dispatchEvent(
+                    new MouseEvent('click', { bubbles: true, cancelable: true, view: window })
+                  );
+                } catch {
+                  // ignore
+                }
               }
+              await new Promise((r) => setTimeout(r, 400));
             }
 
-            days.push({
-              date: dateIso,
-              title: titleText,
-              lessons
-            });
-          }
+            const dayContainers = Array.from(document.querySelectorAll('div[data-date]'));
 
-          return days;
-        });
+            for (const dc of dayContainers) {
+              const dateIso = dc.getAttribute('data-date') || '';
+              const titleText = clean(dc.querySelector('p')?.innerText || '');
 
-        // Attach local file paths to lessons and pick the most complete homework text
-        const daysWithAttachments: DayEntry[] = parsedDays.map((day) => {
-          const dayDate = day.date ? day.date.slice(0, 10) : '';
-          const lessonsWithAtt: Lesson[] = day.lessons.map((lesson) => {
-            const lessonNum = String(lesson.number || '');
-            const subjName = (lesson.subject || '').trim().toLowerCase();
-            const key = `${dayDate}_${lessonNum}_${subjName}`;
-            const fallbackKey = `${dayDate}_${subjName}`;
+              const lessonRows = Array.from(
+                dc.querySelectorAll('.col-span-5.grid, div.grid-cols-subgrid')
+              );
+              const lessons: Array<{
+                number: string;
+                subject: string;
+                topic: string;
+                homework: string;
+                grades: string;
+                hasHomework: boolean;
+              }> = [];
 
-            const attachments =
-              apiAttachmentsMap.get(key) || apiAttachmentsMap.get(fallbackKey) || [];
+              for (const row of lessonRows) {
+                const cells = Array.from(row.children) as HTMLElement[];
+                if (cells.length < 4) continue;
 
-            // Choose most complete homework text between API and cleaned DOM
-            const apiHw = apiHomeworkMap.get(key) || apiHomeworkMap.get(fallbackKey) || '';
-            let finalHomework = lesson.homework;
-            if (apiHw && apiHw.length >= finalHomework.length) {
-              finalHomework = apiHw;
-            } else if (!finalHomework && apiHw) {
-              finalHomework = apiHw;
+                const number = clean(cells[0]?.innerText || '');
+                const subject = clean(
+                  cells[1]?.querySelector('.text-subhead-14')?.textContent || cells[1]?.innerText || ''
+                );
+                const topic = clean(cells[2]?.innerText || '');
+
+                let homework = '';
+                const hwCell = cells[3];
+                if (hwCell) {
+                  // Clone cell and remove attachment links, buttons, and chips to avoid concatenated filenames
+                  const clone = hwCell.cloneNode(true) as HTMLElement;
+                  clone
+                    .querySelectorAll(
+                      'a, button, [class*="attachment"], [class*="file"], [class*="chip"], [class*="badge"], svg'
+                    )
+                    .forEach((el) => el.remove());
+
+                  const hasFormatting = Boolean(
+                    clone.querySelector('p, br, strong, b, em, i, u, s, ul, ol, li')
+                  );
+
+                  if (hasFormatting) {
+                    homework = (clone.innerHTML || '')
+                      .replace(/\s*(\.\.\.\s*)?Rādīt vairāk\s*$/i, '')
+                      .replace(/\s*Rādīt mazāk\s*$/i, '')
+                      .replace(/\s*(Pielikumi\s*(\(\d+\))?|Pielikumi:?|Pielikums:?|Pielikumā)\s*$/i, '')
+                      .trim();
+                  } else {
+                    clone.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+                    clone.querySelectorAll('p, div, li').forEach((el) => el.append('\n'));
+
+                    homework = cleanMultiline(clone.textContent || '');
+                    homework = homework
+                      .replace(/\s*(\.\.\.\s*)?Rādīt vairāk\s*$/i, '')
+                      .replace(/\s*Rādīt mazāk\s*$/i, '')
+                      .replace(/\s*(Pielikumi\s*(\(\d+\))?|Pielikumi:?|Pielikums:?|Pielikumā)\s*$/i, '')
+                      .trim();
+                  }
+                }
+
+                const grades = clean(cells[4]?.innerText || '');
+
+                if (subject || homework || topic) {
+                  lessons.push({
+                    number,
+                    subject,
+                    topic,
+                    homework,
+                    grades,
+                    hasHomework: Boolean(homework)
+                  });
+                }
+              }
+
+              days.push({
+                date: dateIso,
+                title: titleText,
+                lessons
+              });
             }
 
-            // Strip any leaked attachment names or "Rādīt vairāk"
-            finalHomework = cleanHomeworkText(
-              finalHomework,
-              attachments.map((a) => a.name)
-            );
+            return days;
+          });
+
+          // Attach local file paths to lessons and pick the most complete homework text
+          const daysWithAttachments: DayEntry[] = parsedDays.map((day) => {
+            const dayDate = day.date ? day.date.slice(0, 10) : '';
+            const lessonsWithAtt: Lesson[] = day.lessons.map((lesson) => {
+              const lessonNum = String(lesson.number || '');
+              const rawSubj = (lesson.subject || '').trim().toLowerCase();
+              const cleanSubj = rawSubj.replace(/\s*\b\d+\.[a-z]\b/gi, '').trim();
+
+              const key = `${dayDate}_${lessonNum}_${rawSubj}`;
+              const keyClean = `${dayDate}_${lessonNum}_${cleanSubj}`;
+              const numKey = `${dayDate}_#${lessonNum}`;
+              const fallbackKey = `${dayDate}_${cleanSubj || rawSubj}`;
+
+              const attachments =
+              apiAttachmentsMap.get(key) ||
+                apiAttachmentsMap.get(keyClean) ||
+                apiAttachmentsMap.get(numKey) ||
+                apiAttachmentsMap.get(fallbackKey) ||
+                [];
+
+              // Choose most complete homework text between API and expanded DOM
+              const apiHw =
+                apiHomeworkMap.get(key) ||
+                apiHomeworkMap.get(keyClean) ||
+                apiHomeworkMap.get(numKey) ||
+                apiHomeworkMap.get(fallbackKey) ||
+                '';
+
+              let finalHomework = lesson.homework;
+                if (apiHw) {
+                  if (!finalHomework) {
+                    finalHomework = apiHw;
+                  } else if (apiHw.length >= finalHomework.length) {
+                    finalHomework = apiHw;
+                  } else if (
+                    finalHomework.includes('...') ||
+                    finalHomework.endsWith(' un') ||
+                    finalHomework.endsWith(' un.')
+                  ) {
+                    finalHomework = apiHw;
+                  }
+                }
+
+                // Strip any leaked attachment names or "Rādīt vairāk"
+                finalHomework = cleanHomeworkText(
+                  finalHomework,
+                  attachments.map((a) => a.name)
+                );
+
+                return {
+                  ...lesson,
+                  homework: finalHomework,
+                  hasHomework: Boolean(finalHomework),
+                  attachments
+                };
+              });
 
             return {
-              ...lesson,
-              homework: finalHomework,
-              hasHomework: Boolean(finalHomework),
-              attachments
+              date: day.date,
+              title: day.title,
+              lessons: lessonsWithAtt
             };
           });
 
-          return {
-            date: day.date,
-            title: day.title,
-            lessons: lessonsWithAtt
-          };
-        });
+          // Filter for days strictly AFTER today (exclude today's homework!)
+          const futureDays = daysWithAttachments.filter((day) => {
+            const dayDate = day.date ? day.date.slice(0, 10) : '';
+            return dayDate > todayStr;
+          });
 
-        // Filter for days strictly AFTER today (exclude today's homework!)
-        const futureDays = daysWithAttachments.filter((day) => {
-          const dayDate = day.date ? day.date.slice(0, 10) : '';
-          return dayDate > todayStr;
-        });
+          console.log(
+            `📊 Collected ${futureDays.length} future day(s) for ${target.label} (excluding today)`
+          );
 
-        console.log(
-          `📊 Collected ${futureDays.length} future day(s) for ${target.label} (excluding today)`
-        );
+          allProfilesReports.push({
+            profileId: `profile-${i}`,
+            className: target.className,
+            schoolName: target.schoolName,
+            label: target.label,
+            student: studentName,
+            days: futureDays
+          });
+        }
 
-        allProfilesReports.push({
-          profileId: `profile-${i}`,
-          className: target.className,
-          schoolName: target.schoolName,
-          label: target.label,
-          student: studentName,
-          days: futureDays
-        });
-      }
+        // Refresh saved session state at end of successful scrape
+        if (authFile) {
+          try {
+            await context.storageState({ path: authFile });
+          } catch {
+            // ignore
+          }
+        }
 
-      // Refresh saved session state at end of successful scrape
-      if (authFile) {
+        return {
+          profiles: allProfilesReports,
+          today: todayStr
+        };
+      } catch (error) {
+        console.error('❌ Error executing scraper:', error);
         try {
-          await context.storageState({ path: authFile });
+          await page.screenshot({ path: 'error_screenshot.png', fullPage: true });
+          console.log('📸 Saved error screenshot to error_screenshot.png');
         } catch {
           // ignore
         }
+        throw error;
+      } finally {
+        await browser.close();
+        console.log('🏁 Execution complete.');
       }
-
-      return {
-        profiles: allProfilesReports,
-        today: todayStr
-      };
-    } catch (error) {
-      console.error('❌ Error executing scraper:', error);
-      try {
-        await page.screenshot({ path: 'error_screenshot.png', fullPage: true });
-        console.log('📸 Saved error screenshot to error_screenshot.png');
-      } catch {
-        // ignore
-      }
-      throw error;
-    } finally {
-      await browser.close();
-      console.log('🏁 Execution complete.');
     }
-  }

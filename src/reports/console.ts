@@ -1,5 +1,6 @@
 import type { ScrapeReport } from '../types.ts';
 import { combineHomeworkByClass } from '../combiner.ts';
+import { homeworkToPlainText } from '../utils.ts';
 
 /**
  * Format and print the collected homework to console grouped by class
@@ -39,7 +40,16 @@ export function printHomeworkReport(report: ScrapeReport): void {
         if (l.topic) {
           console.log(`        📖 Tēma:        ${l.topic}`);
         }
-        console.log(`        ✏️  MĀJASDARBS:  ${l.homework}`);
+        const plainHw = homeworkToPlainText(l.homework);
+        const hwLines = plainHw.split('\n');
+        if (hwLines.length <= 1) {
+          console.log(`        ✏️  MĀJASDARBS:  ${plainHw}`);
+        } else {
+          console.log(`        ✏️  MĀJASDARBS:  ${hwLines[0]}`);
+          for (let idx = 1; idx < hwLines.length; idx++) {
+            console.log(`                        ${hwLines[idx]}`);
+          }
+        }
         if (l.attachments && l.attachments.length > 0) {
           for (const a of l.attachments) {
             console.log(`        📎  Pielikums:   ${a.name} (${a.formattedSize})`);

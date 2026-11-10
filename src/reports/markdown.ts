@@ -1,5 +1,6 @@
 import type { ScrapeReport } from '../types.ts';
 import { combineHomeworkByClass } from '../combiner.ts';
+import { homeworkToMarkdown } from '../utils.ts';
 
 /**
  * Generate a GitHub-flavored Markdown checklist grouped by combined class
@@ -34,7 +35,8 @@ export function generateMarkdownReport(report: ScrapeReport): string {
           if (l.topic) {
             md += `  - 📖 *Tēma:* ${l.topic}\n`;
           }
-          md += `  - ✏️ *Uzdevums:* ${l.homework.replace(/\n/g, ' ')}\n`;
+          const formattedHw = homeworkToMarkdown(l.homework);
+          md += `  - ✏️ *Uzdevums:* ${formattedHw}\n`;
           if (l.attachments && l.attachments.length > 0) {
             const attLinks = l.attachments
               .map((a) => `[${a.name} (${a.formattedSize})](${encodeURI(a.localPath || a.url)})`)
