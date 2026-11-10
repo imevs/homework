@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "scrape": "node src/index.ts",
     "scrape:headed": "HEADLESS=false node src/index.ts",
-    "report": "node src/index.ts --generate-only",
+    "report": "node src/index.ts --generate-only"
   },
   "dependencies": {
     "playwright": "^1.49.0"
