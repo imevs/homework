@@ -2,8 +2,9 @@ name: Deploy E-Klase Homework to GitHub Pages
 
 on:
   schedule:
-    # Runs every day at 14:00 Latvian time (EET / UTC+2 -> 12:00 UTC)
-    - cron: '0 12 * * *'
+    # Runs every day at 14:47 Latvian time (EET / UTC+2 -> 11:47 UTC; off :00 to avoid cron queue spikes)
+    - cron: '47 12 * * *'
+    - cron: '47 15 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
   push:
     branches:
