@@ -211,6 +211,21 @@ export function getTodayDateString(d: Date = new Date()): string {
 }
 
 /**
+ * Returns the YYYY-MM-DD date string for next Monday if the given date is
+ * Friday, Saturday, or Sunday; otherwise returns null.
+ */
+export function getNextWeekMondayIfWeekendOrFriday(todayStr: string): string | null {
+  const d = new Date(`${todayStr}T12:00:00`);
+  const dow = d.getDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+  if (dow !== 5 && dow !== 6 && dow !== 0) {
+    return null;
+  }
+  const daysUntilMonday = dow === 0 ? 1 : 8 - dow;
+  d.setDate(d.getDate() + daysUntilMonday);
+  return getTodayDateString(d);
+}
+
+/**
  * Remove trailing "Rādīt vairāk", "Rādīt mazāk", "Pielikumi (N)", and trailing attachment filenames
  */
 export function cleanHomeworkText(text?: string, attachmentNames: string[] = []): string {
