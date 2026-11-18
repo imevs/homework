@@ -69,15 +69,23 @@ export function generateHtmlReport(report: ScrapeReport): string {
                 let attachmentsHtml = '';
                 if (l.attachments && l.attachments.length > 0) {
                   const chips = l.attachments
-                    .map(
-                      (a) => `
+                    .map((a) => {
+                      const pdfChip = a.pdfPath
+                        ? `
+              <a href="${escapeHtml(a.pdfPath)}" target="_blank" rel="noopener noreferrer" class="att-chip att-chip-pdf" title="Skatīt PDF: ${escapeHtml(a.name)}">
+                <span class="att-icon">📄</span>
+                <span class="att-name">${escapeHtml(a.name.replace(/\.[^.]+$/, '.pdf'))}</span>
+                <span class="att-size">(PDF)</span>
+              </a>`
+                        : '';
+                      const origChip = `
               <a href="${escapeHtml(a.localPath || a.url)}" target="_blank" rel="noopener noreferrer" class="att-chip" title="Atvērt ${escapeHtml(a.name)}">
                 <span class="att-icon">📎</span>
                 <span class="att-name">${escapeHtml(a.name)}</span>
                 <span class="att-size">(${escapeHtml(a.formattedSize)})</span>
-              </a>
-            `
-                    )
+              </a>`;
+                      return `${pdfChip}${origChip}`;
+                    })
                     .join('');
                   attachmentsHtml = `<div class="task-att-row">${chips}</div>`;
                 }
@@ -578,6 +586,17 @@ export function generateHtmlReport(report: ScrapeReport): string {
     .att-chip:hover {
       background: #dbeafe;
       border-color: #93c5fd;
+    }
+
+    .att-chip-pdf {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #b91c1c;
+    }
+
+    .att-chip-pdf:hover {
+      background: #fee2e2;
+      border-color: #fca5a5;
     }
 
     .att-icon { font-size: 0.8rem; }

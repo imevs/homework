@@ -13,6 +13,7 @@ export interface Attachment {
   formattedSize: string;
   url: string;
   localPath?: string;
+  pdfPath?: string;
 }
 
 export interface Lesson {

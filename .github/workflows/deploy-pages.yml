@@ -46,6 +46,9 @@ jobs:
       - name: Install Playwright browser dependencies
         run: npx playwright install --with-deps chromium
 
+      - name: Install LibreOffice for Office-to-PDF conversion
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-impress libreoffice-calc fonts-liberation fonts-dejavu-core
+
       - name: Restore Playwright authentication session
         uses: actions/cache@v4
         with:

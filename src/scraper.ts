@@ -15,7 +15,8 @@ import {
   getTodayDateString,
   getNextWeekMondayIfWeekendOrFriday,
   LATVIAN_DAYS,
-  cleanHomeworkText
+  cleanHomeworkText,
+  convertOfficeFileToPdf
 } from './utils.ts';
 
 interface ScraperResult {
@@ -489,7 +490,7 @@ export async function runScraper(config: AppConfig): Promise<ScraperResult> {
       }
 
       // Download attachments for this profile, skipping already downloaded files
-      const downloadedMap = new Map<string, string>();
+      const downloadedMap = new Map<string, { localPath: string; pdfPath?: string }>();
       for (const [, attList] of apiAttachmentsMap) {
         for (const att of attList) {
           if (att.dayDate && att.dayDate <= todayStr) {
@@ -509,11 +510,7 @@ export async function runScraper(config: AppConfig): Promise<ScraperResult> {
           if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
             console.log(`   ⏭️  [${att.dayFolderName}] Skipping (already downloaded): ${att.name}`);
             att.localPath = relativePath;
-            downloadedMap.set(att.id, relativePath);
-            continue;
-          }
-
-          if (!downloadedMap.has(att.id)) {
+          } else if (!downloadedMap.has(att.id)) {
             try {
               console.log(
                 `   ⬇️  [${att.dayFolderName}] Downloading: ${att.name} (${att.formattedSize})...`
@@ -528,7 +525,6 @@ export async function runScraper(config: AppConfig): Promise<ScraperResult> {
                 const buffer = await fileResp.body();
                 fs.writeFileSync(localPath, buffer);
                 att.localPath = relativePath;
-                downloadedMap.set(att.id, relativePath);
                 console.log(`      ✅ Saved to: ${relativePath}`);
               } else {
                 console.warn(`      ⚠️  Download returned HTTP ${fileResp.status()}`);
@@ -537,7 +533,26 @@ export async function runScraper(config: AppConfig): Promise<ScraperResult> {
               console.warn(`      ⚠️  Failed to download ${att.name}: ${dlErr?.message}`);
             }
           } else {
-            att.localPath = downloadedMap.get(att.id);
+            const cached = downloadedMap.get(att.id)!;
+            att.localPath = cached.localPath;
+            att.pdfPath = cached.pdfPath;
+          }
+
+          if (att.localPath && !att.pdfPath) {
+            const absSource = path.join(targetDayFolder, path.basename(att.localPath));
+            const convertedPdfAbs = convertOfficeFileToPdf(absSource);
+            if (convertedPdfAbs) {
+              att.pdfPath = path.posix.join(
+                'attachments',
+                att.dayFolderName || 'other',
+                path.basename(convertedPdfAbs)
+              );
+              console.log(`      📄 PDF ready: ${att.pdfPath}`);
+            }
+          }
+
+          if (att.localPath && !downloadedMap.has(att.id)) {
+            downloadedMap.set(att.id, { localPath: att.localPath, pdfPath: att.pdfPath });
           }
         }
       }

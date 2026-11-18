@@ -1,3 +1,7 @@
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+
 export const LATVIAN_DAYS = [
   'svētdiena',
   'pirmdiena',
@@ -255,3 +259,76 @@ export function cleanHomeworkText(text?: string, attachmentNames: string[] = [])
 
       return cleaned;
     }
+
+const OFFICE_EXTENSIONS = new Set([
+  '.doc',
+  '.docx',
+  '.ppt',
+  '.pptx',
+  '.xls',
+  '.xlsx',
+  '.odt',
+  '.odp',
+  '.ods',
+  '.rtf'
+]);
+
+let cachedSofficeBin: string | null | undefined;
+
+function findSofficeBinary(): string | null {
+  if (cachedSofficeBin !== undefined) return cachedSofficeBin;
+  const candidates = [
+    'soffice',
+    'libreoffice',
+    '/Applications/LibreOffice.app/Contents/MacOS/soffice'
+  ];
+  for (const bin of candidates) {
+    try {
+      execFileSync(bin, ['--version'], { timeout: 5000, stdio: 'ignore' });
+      cachedSofficeBin = bin;
+      return bin;
+    } catch {
+      // try next candidate
+    }
+  }
+  cachedSofficeBin = null;
+  return null;
+}
+
+/**
+ * Convert an Office document (.doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods, .rtf)
+ * to PDF in the same directory using LibreOffice if available.
+ * Returns the absolute path to the PDF, or undefined if not applicable / conversion unavailable.
+ */
+export function convertOfficeFileToPdf(inputPath: string): string | undefined {
+  const ext = path.extname(inputPath).toLowerCase();
+  if (!OFFICE_EXTENSIONS.has(ext) || !fs.existsSync(inputPath)) {
+    return undefined;
+  }
+
+  const outDir = path.dirname(inputPath);
+  const pdfPath = path.join(outDir, `${path.basename(inputPath, path.extname(inputPath))}.pdf`);
+
+  if (fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 0) {
+    return pdfPath;
+  }
+
+  const bin = findSofficeBinary();
+  if (!bin) {
+    return undefined;
+  }
+
+  try {
+    execFileSync(bin, ['--headless', '--convert-to', 'pdf', '--outdir', outDir, inputPath], {
+      timeout: 60000,
+      stdio: 'pipe'
+    });
+    if (fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 0) {
+      return pdfPath;
+    }
+  } catch (err: any) {
+    console.warn(`      ⚠️  PDF conversion failed for ${path.basename(inputPath)}: ${err?.message}`);
+  }
+
+  return undefined;
+}

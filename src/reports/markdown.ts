@@ -39,7 +39,10 @@ export function generateMarkdownReport(report: ScrapeReport): string {
           md += `  - ✏️ *Uzdevums:* ${formattedHw}\n`;
           if (l.attachments && l.attachments.length > 0) {
             const attLinks = l.attachments
-              .map((a) => `[${a.name} (${a.formattedSize})](${encodeURI(a.localPath || a.url)})`)
+              .map((a) => {
+                const origLink = `[${a.name} (${a.formattedSize})](${encodeURI(a.localPath || a.url)})`;
+                return a.pdfPath ? `${origLink} ([PDF](${encodeURI(a.pdfPath)}))` : origLink;
+              })
               .join(', ');
             md += `  - 📎 *Pielikumi:* ${attLinks}\n`;
           }
