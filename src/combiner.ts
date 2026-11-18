@@ -46,6 +46,12 @@ export function combineHomeworkByClass(profiles: ProfileReport[]): ClassReport[]
         dayEntry.title = day.title;
       }
       for (const lesson of day.lessons) {
+        if (
+          /^Stundas numurs$/i.test((lesson.number || '').trim()) ||
+          /^Priekšmets un telpa$/i.test((lesson.subject || '').trim())
+        ) {
+          continue;
+        }
         const cleanedHw = cleanHomeworkText(
           lesson.homework,
           (lesson.attachments || []).map((a) => a.name)

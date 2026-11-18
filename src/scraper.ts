@@ -639,6 +639,10 @@ export async function runScraper(config: AppConfig): Promise<ScraperResult> {
             const subject = clean(
               cells[1]?.querySelector('.text-subhead-14')?.textContent || cells[1]?.innerText || ''
             );
+            // Skip the diary table header row ("Stundas numurs" / "Priekšmets un telpa" / "Uzdots")
+            if (/^Stundas numurs$/i.test(number) || /^Priekšmets un telpa$/i.test(subject)) {
+              continue;
+            }
             const topic = clean(cells[2]?.innerText || '');
 
             let homework = '';
